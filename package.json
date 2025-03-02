@@ -1,0 +1,15 @@
+{
+  "devDependencies": {
+    "esbuild": "^0.20.1",
+    "purs-tidy": "^0.11.0",
+    "tailwind-merge": "^2.2.1",
+    "@tailwindcss/cli": "^4.0.9"
+  },
+  "scripts": {
+    "spago-bundle-app": "spago bundle-app --to dist/index.js",
+    "spago-bundle-app-release": "spago bundle-app --to dist/index.js --source-maps --minify"
+  },
+  "dependencies": {
+    "http-server": "^14.1.1"
+  }
+}
