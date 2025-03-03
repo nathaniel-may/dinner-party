@@ -27,7 +27,7 @@ main :: Effect Unit
 main = HA.runHalogenAff do
   HA.awaitLoad
   html <- selectElement_ "html"
-  -- clear any existing values and re render. 
+  -- clear any existing values and re render.
   -- initial html served should contain references to all the expensive assets so they can
   -- take advantage of browser initial page loading optimiations
   liftEffect $ replaceChildren (toElement html) []
@@ -45,6 +45,7 @@ rootComponent elem =
   initialState _ = elem
   render state = state
 
+rootContents :: ∀ w i. Array (HH.HTML w i)
 rootContents =
   [ HH.head_
       [ HH.title_ [ HH.text "Hello World" ] ]

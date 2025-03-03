@@ -22,6 +22,7 @@ to generate this file without the comments in this block.
   , "integers"
   , "maybe"
   , "prelude"
+  , "random"
   , "transformers"
   , "web-dom"
   , "web-html"
