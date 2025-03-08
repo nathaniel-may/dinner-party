@@ -11,3 +11,4 @@
 /.stack-work
 /dist/
 /root/
+**/target/
