@@ -1,8 +1,8 @@
 use argmin::core::{CostFunction, Error, Executor, State};
 use argmin::solver::simulatedannealing::{Anneal, SimulatedAnnealing};
-use rand::rngs::SmallRng;
 use rand::{RngCore, SeedableRng};
-use std::collections::{HashMap, HashSet};
+use rand_xoshiro::Xoshiro256PlusPlus;
+use std::collections::{HashMap, HashSet, VecDeque};
 use std::sync::{Arc, Mutex};
 
 #[derive(Clone, Debug)]
@@ -12,7 +12,7 @@ pub struct DinnerParty {
     pub group_size: usize,
     pub rounds: usize,
     // using SmallRng for speed
-    pub rng: Arc<Mutex<SmallRng>>,
+    pub rng: Arc<Mutex<Xoshiro256PlusPlus>>,
 }
 
 impl DinnerParty {
@@ -35,7 +35,7 @@ impl DinnerParty {
         rounds
     }
 
-    pub fn min_people_met(&self, assignment: &Vec<Vec<Option<usize>>>) -> usize {
+    fn people_met(&self, assignment: &Vec<Vec<Option<usize>>>) -> HashMap<usize, HashSet<usize>> {
         let mut m: HashMap<usize, HashSet<usize>> = HashMap::with_capacity(self.participants);
         for round in assignment {
             for i in 0..self.participants / self.group_size {
@@ -60,13 +60,71 @@ impl DinnerParty {
                 }
             }
         }
+        m
+    }
 
-        let min = m.values().map(|x| x.len()).reduce(std::cmp::min);
+    pub fn min_people_met(&self, people_met: &HashMap<usize, HashSet<usize>>) -> usize {
+        let min = people_met.values().map(|x| x.len()).reduce(std::cmp::min);
 
         match min {
             None => 0,
             Some(x) => x,
         }
+    }
+
+    // converts a seating chart into ordered table names for each person
+    pub fn to_table_order(
+        &self,
+        assignment: &Vec<Vec<Option<usize>>>,
+    ) -> HashMap<usize, Vec<char>> {
+        let mut m: HashMap<usize, Vec<char>> = HashMap::new();
+
+        for round in assignment {
+            let mut table_names: VecDeque<char> = ('A'..='Z').collect();
+            for i in 0..self.participants / self.group_size {
+                let table_name = table_names.pop_front().unwrap();
+                let table: Vec<usize> = round
+                    [i * self.group_size..i * self.group_size + self.group_size]
+                    .iter()
+                    .flat_map(|x| x.iter())
+                    .cloned()
+                    .collect();
+
+                for person in &table {
+                    match m.get_mut(person) {
+                        Some(tables) => {
+                            tables.push(table_name);
+                        }
+                        None => {
+                            m.insert(*person, vec![table_name]);
+                        }
+                    }
+                }
+            }
+        }
+
+        m
+    }
+
+    pub fn print_csv(
+        &self,
+        assignment: &Vec<Vec<Option<usize>>>,
+    ) -> Result<(), Box<dyn std::error::Error>> {
+        let mut wtr = csv::Writer::from_writer(std::io::stdout());
+
+        let mut ordered_ouput: Vec<(usize, Vec<char>)> =
+            self.to_table_order(assignment).drain().collect();
+        ordered_ouput.sort();
+
+        for row in ordered_ouput {
+            let person: usize = row.0;
+            let tables: Vec<String> = row.1.iter().map(ToString::to_string).collect();
+            let row = [&[person.to_string()], &tables[..]].concat();
+            wtr.write_record(row)?;
+        }
+
+        wtr.flush()?;
+        Ok(())
     }
 }
 
@@ -95,9 +153,15 @@ impl CostFunction for DinnerParty {
     type Param = Vec<Vec<Option<usize>>>;
     type Output = f64;
 
-    // the number of people that the person who meets the least people is the cost.
+    // minimizing the number of unmet people for the person who has met the least people
     fn cost(&self, assignment: &Self::Param) -> Result<Self::Output, Error> {
-        Ok(self.min_people_met(assignment) as f64)
+        let people_met = self.people_met(assignment);
+        let min_people_met = self.min_people_met(&people_met);
+        let mean_people_met =
+            people_met.values().map(|x| x.len()).sum::<usize>() as f64 / people_met.len() as f64;
+        // favor solutions with higher averages if they ahve the same minimum people met
+        let adjustment = (mean_people_met - min_people_met as f64) / 100.0;
+        Ok((self.participants - min_people_met) as f64 - adjustment)
     }
 }
 
@@ -114,27 +178,10 @@ fn test_cost_fn() {
         vec![0, 1, 2, 4, 3, 5].into_iter().map(Some).collect(),
     ];
     if let Ok(cost) = party.cost(&assignment) {
-        assert_eq!(2.0, cost)
+        assert_eq!(3.993333333333333, cost)
     } else {
         panic!("cost function failed")
     }
-}
-
-pub fn approximate(problem: &mut DinnerParty, runs: u64) -> Vec<Vec<Option<usize>>> {
-    let init = problem.init();
-    let solver = SimulatedAnnealing::new(100.0).unwrap();
-    let res = Executor::new(problem.clone(), solver)
-        .configure(|state| {
-            state
-                .param(init)
-                // stops after this number of iterations (runs in cli)
-                .max_iters(runs)
-        })
-        // run the solver on the defined problem
-        .run()
-        .unwrap();
-
-    res.state().get_best_param().unwrap().clone()
 }
 
 fn random_permutation<A>(rng: &mut impl RngCore, xs: &mut [A]) {
@@ -149,7 +196,7 @@ fn random_permutation<A>(rng: &mut impl RngCore, xs: &mut [A]) {
 
 #[test]
 fn test_random_permutation() {
-    let mut rng: SmallRng = rand::SeedableRng::seed_from_u64(1);
+    let mut rng: Xoshiro256PlusPlus = rand::SeedableRng::seed_from_u64(1);
     let mut xs = vec![1, 2, 3, 4, 5];
     random_permutation(&mut rng, &mut xs);
     assert_eq!(xs, vec![1, 3, 4, 2, 5])
@@ -169,17 +216,17 @@ fn random_swap<A>(rng: &mut impl RngCore, xs: &mut [A]) {
 
 #[test]
 fn test_random_swap() {
-    let mut rng: SmallRng = rand::SeedableRng::seed_from_u64(1);
+    let mut rng: Xoshiro256PlusPlus = rand::SeedableRng::seed_from_u64(1);
     let mut xs = vec![1, 2, 3, 4, 5];
     random_swap(&mut rng, &mut xs);
     assert_eq!(xs, vec![1, 2, 4, 3, 5])
 }
 
-fn main() {
+fn main() -> Result<(), Box<dyn std::error::Error>> {
     let runs = 1000000;
-    let mut problem = DinnerParty {
-        participants: 24,
-        group_size: 6,
+    let problem = DinnerParty {
+        participants: 16,
+        group_size: 4,
         rounds: 3,
         rng: Arc::new(Mutex::new(SeedableRng::from_os_rng())),
     };
@@ -187,10 +234,21 @@ fn main() {
         "Running approximation for optimal Dinner Party of {} guests, tables of size {}, with {} rounds. Number of runs={runs}.",
         &problem.participants, &problem.group_size, &problem.rounds
     );
-    let result = approximate(&mut problem, runs);
+
+    let solver = SimulatedAnnealing::new(problem.participants as f64)
+        .unwrap()
+        .with_stall_best(runs / 10)
+        .with_reannealing_fixed(runs / 20);
+    let res = Executor::new(problem.clone(), solver)
+        .configure(|state| state.param(problem.init()).max_iters(runs))
+        .run()
+        .unwrap();
+
+    let result = res.state().get_best_param().unwrap().clone();
+
     println!(
         "Everyone meets at least {} people with the following assignments",
-        problem.min_people_met(&result)
+        problem.min_people_met(&problem.people_met(&result))
     );
-    println!("{result:?}")
+    problem.print_csv(&result)
 }
