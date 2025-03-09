@@ -1,18 +1,21 @@
-use argmin::core::{CostFunction, Error, Executor, State};
-use argmin::solver::simulatedannealing::{Anneal, SimulatedAnnealing};
-use rand::{Rng, rngs::SmallRng, seq::SliceRandom};
+use argmin::{
+    core::{CostFunction, Error, Executor, State},
+    solver::simulatedannealing::{Anneal, SimulatedAnnealing},
+};
+use rand::{Rng, SeedableRng, rngs::SmallRng, seq::SliceRandom};
 use std::{
     collections::{HashMap, HashSet, VecDeque},
     sync::{Arc, Mutex},
 };
+#[cfg_attr(target_arch = "wasm32", wasm_bindgen)]
+use wasm_bindgen::prelude::*;
 
-#[derive(Clone, Debug)]
+#[derive(Clone)]
 pub struct DinnerParty {
     pub participants: usize,
     // TODO problem could be expanded to include heterogeneous group sizes
     pub group_size: usize,
     pub rounds: usize,
-    // using SmallRng for speed and SliceRandom impl
     pub rng: Arc<Mutex<SmallRng>>,
 }
 
@@ -198,4 +201,24 @@ pub fn run(
     let result = res.state().get_best_param().unwrap();
 
     Ok(result.clone())
+}
+
+#[wasm_bindgen()]
+pub struct SeatAssignment {}
+
+#[wasm_bindgen]
+pub fn run_wasm(
+    participants: usize,
+    group_size: usize,
+    rounds: usize,
+    runs: u64,
+) -> SeatAssignment {
+    let problem = DinnerParty {
+        participants,
+        group_size,
+        rounds,
+        rng: Arc::new(Mutex::new(SeedableRng::from_os_rng())),
+    };
+    run(&problem, runs);
+    SeatAssignment {}
 }
