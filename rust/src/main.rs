@@ -1,9 +1,10 @@
 use argmin::core::{CostFunction, Error, Executor, State};
 use argmin::solver::simulatedannealing::{Anneal, SimulatedAnnealing};
-use rand::{RngCore, SeedableRng};
-use rand_xoshiro::Xoshiro256PlusPlus;
-use std::collections::{HashMap, HashSet, VecDeque};
-use std::sync::{Arc, Mutex};
+use rand::{Rng, SeedableRng, rngs::SmallRng, seq::SliceRandom};
+use std::{
+    collections::{HashMap, HashSet, VecDeque},
+    sync::{Arc, Mutex},
+};
 
 #[derive(Clone, Debug)]
 pub struct DinnerParty {
@@ -11,8 +12,8 @@ pub struct DinnerParty {
     // TODO problem could be expanded to include heterogeneous group sizes
     pub group_size: usize,
     pub rounds: usize,
-    // using SmallRng for speed
-    pub rng: Arc<Mutex<Xoshiro256PlusPlus>>,
+    // using SmallRng for speed and SliceRandom impl
+    pub rng: Arc<Mutex<SmallRng>>,
 }
 
 impl DinnerParty {
@@ -28,7 +29,7 @@ impl DinnerParty {
 
         let mut rng = self.rng.lock().unwrap();
         while rounds.len() < self.rounds {
-            random_permutation(&mut rng, &mut seats);
+            seats.shuffle(&mut rng);
             rounds.push(seats.clone());
         }
 
@@ -178,39 +179,22 @@ fn test_cost_fn() {
     }
 }
 
-fn random_permutation<A>(rng: &mut impl RngCore, xs: &mut [A]) {
+fn random_swap<A>(rng: &mut impl Rng, xs: &mut [A]) {
     if xs.len() <= 1 {
         return;
     }
-    for i in 0..(xs.len() - 1) {
-        let swap_i = rng.next_u32() as usize % (xs.len() - 1 - i);
-        xs.swap(i, swap_i);
-    }
-}
 
-#[test]
-fn test_random_permutation() {
-    let mut rng: Xoshiro256PlusPlus = rand::SeedableRng::seed_from_u64(1);
-    let mut xs = vec![1, 2, 3, 4, 5];
-    random_permutation(&mut rng, &mut xs);
-    assert_eq!(xs, vec![1, 3, 4, 2, 5])
-}
-
-fn random_swap<A>(rng: &mut impl RngCore, xs: &mut [A]) {
-    if xs.len() <= 1 {
-        return;
-    }
-    let i = rng.next_u32() as usize % (xs.len() - 1);
-    let mut j = rng.next_u32() as usize % (xs.len() - 1);
+    let i = rng.random_range(0..xs.len());
+    let mut j = rng.random_range(0..xs.len());
     while i == j {
-        j = rng.next_u32() as usize % (xs.len() - 1);
+        j = rng.random_range(0..xs.len());
     }
     xs.swap(i, j);
 }
 
 #[test]
 fn test_random_swap() {
-    let mut rng: Xoshiro256PlusPlus = rand::SeedableRng::seed_from_u64(1);
+    let mut rng: SmallRng = rand::SeedableRng::seed_from_u64(1);
     let mut xs = vec![1, 2, 3, 4, 5];
     random_swap(&mut rng, &mut xs);
     assert_eq!(xs, vec![1, 2, 4, 3, 5])
