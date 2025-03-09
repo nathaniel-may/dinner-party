@@ -64,12 +64,11 @@ impl DinnerParty {
     }
 
     pub fn min_people_met(&self, people_met: &HashMap<usize, HashSet<usize>>) -> usize {
-        let min = people_met.values().map(|x| x.len()).reduce(std::cmp::min);
-
-        match min {
-            None => 0,
-            Some(x) => x,
-        }
+        people_met
+            .values()
+            .map(|x| x.len())
+            .reduce(std::cmp::min)
+            .unwrap_or(0)
     }
 
     // converts a seating chart into ordered table names for each person
@@ -81,16 +80,11 @@ impl DinnerParty {
 
         for round in assignment {
             let mut table_names: VecDeque<char> = ('A'..='Z').collect();
-            for i in 0..self.participants / self.group_size {
+            for table in round.chunks(self.group_size) {
                 let table_name = table_names.pop_front().unwrap();
-                let table: Vec<usize> = round
-                    [i * self.group_size..i * self.group_size + self.group_size]
-                    .iter()
-                    .flat_map(|x| x.iter())
-                    .cloned()
-                    .collect();
+                let people: Vec<usize> = table.iter().flat_map(|x| x.iter()).cloned().collect();
 
-                for person in &table {
+                for person in &people {
                     match m.get_mut(person) {
                         Some(tables) => {
                             tables.push(table_name);
@@ -112,11 +106,11 @@ impl DinnerParty {
     ) -> Result<(), Box<dyn std::error::Error>> {
         let mut wtr = csv::Writer::from_writer(std::io::stdout());
 
-        let mut ordered_ouput: Vec<(usize, Vec<char>)> =
+        let mut ordered_output: Vec<(usize, Vec<char>)> =
             self.to_table_order(assignment).drain().collect();
-        ordered_ouput.sort();
+        ordered_output.sort();
 
-        for row in ordered_ouput {
+        for row in ordered_output.clone() {
             let person: usize = row.0;
             let tables: Vec<String> = row.1.iter().map(ToString::to_string).collect();
             let row = [&[person.to_string()], &tables[..]].concat();
@@ -225,8 +219,8 @@ fn test_random_swap() {
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     let runs = 1000000;
     let problem = DinnerParty {
-        participants: 16,
-        group_size: 4,
+        participants: 18,
+        group_size: 6,
         rounds: 3,
         rng: Arc::new(Mutex::new(SeedableRng::from_os_rng())),
     };
@@ -235,8 +229,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         &problem.participants, &problem.group_size, &problem.rounds
     );
 
-    let solver = SimulatedAnnealing::new(problem.participants as f64)
-        .unwrap()
+    let solver = SimulatedAnnealing::new(problem.participants as f64)?
         .with_stall_best(runs / 10)
         .with_reannealing_fixed(runs / 20);
     let res = Executor::new(problem.clone(), solver)
